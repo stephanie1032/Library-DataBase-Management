@@ -1,0 +1,101 @@
+-- Create database
+CREATE DATABASE IF NOT EXISTS library_management;
+USE library_management;
+
+-- Create tables
+CREATE TABLE books (
+    book_id INT PRIMARY KEY AUTO_INCREMENT,
+    title VARCHAR(100) NOT NULL,
+    author VARCHAR(100) NOT NULL,
+    isbn VARCHAR(13) UNIQUE,
+    published_date DATE,
+    quantity INT DEFAULT 1
+);
+
+CREATE TABLE members (
+    member_id INT PRIMARY KEY AUTO_INCREMENT,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    email VARCHAR(100) UNIQUE,
+    join_date DATE DEFAULT CURRENT_DATE
+);
+
+CREATE TABLE loans (
+    loan_id INT PRIMARY KEY AUTO_INCREMENT,
+    book_id INT,
+    member_id INT,
+    loan_date DATE DEFAULT CURRENT_DATE,
+    return_date DATE,
+    FOREIGN KEY (book_id) REFERENCES books(book_id),
+    FOREIGN KEY (member_id) REFERENCES members(member_id)
+);
+
+-- Insert sample data
+INSERT INTO books (title, author, isbn, published_date, quantity)
+VALUES 
+('To Kill a Mockingbird', 'Harper Lee', '9780446310789', '1960-07-11', 5),
+('1984', 'George Orwell', '9780451524935', '1949-06-08', 3),
+('Pride and Prejudice', 'Jane Austen', '9780141439518', '1813-01-28', 4);
+
+INSERT INTO members (first_name, last_name, email)
+VALUES 
+('John', 'Doe', 'john.doe@email.com'),
+('Jane', 'Smith', 'jane.smith@email.com'),
+('Bob', 'Johnson', 'bob.johnson@email.com');
+
+INSERT INTO loans (book_id, member_id, loan_date, return_date)
+VALUES 
+(1, 1, '2023-01-15', '2023-02-15'),
+(2, 2, '2023-02-01', NULL),
+(3, 3, '2023-02-10', '2023-03-10');
+
+-- Create views
+CREATE VIEW available_books AS
+SELECT book_id, title, author, quantity - COALESCE(loaned, 0) AS available
+FROM books
+LEFT JOIN (
+    SELECT book_id, COUNT(*) AS loaned
+    FROM loans
+    WHERE return_date IS NULL
+    GROUP BY book_id
+) AS active_loans USING (book_id);
+
+CREATE VIEW overdue_loans AS
+SELECT l.loan_id, b.title, m.first_name, m.last_name, l.loan_date
+FROM loans l
+JOIN books b ON l.book_id = b.book_id
+JOIN members m ON l.member_id = m.member_id
+WHERE l.return_date IS NULL AND l.loan_date < DATE_SUB(CURRENT_DATE, INTERVAL 30 DAY);
+
+-- Create stored procedures
+DELIMITER //
+
+CREATE PROCEDURE borrow_book(IN p_book_id INT, IN p_member_id INT)
+BEGIN
+    INSERT INTO loans (book_id, member_id) VALUES (p_book_id, p_member_id);
+    UPDATE books SET quantity = quantity - 1 WHERE book_id = p_book_id;
+END //
+
+CREATE PROCEDURE return_book(IN p_loan_id INT)
+BEGIN
+    UPDATE loans SET return_date = CURRENT_DATE WHERE loan_id = p_loan_id;
+    UPDATE books b
+    JOIN loans l ON b.book_id = l.book_id
+    SET b.quantity = b.quantity + 1
+    WHERE l.loan_id = p_loan_id;
+END //
+
+DELIMITER ;
+
+-- Example queries
+-- Get all available books
+SELECT * FROM available_books;
+
+-- Get overdue loans
+SELECT * FROM overdue_loans;
+
+-- Borrow a book
+CALL borrow_book(1, 2);
+
+-- Return a book
+CALL return_book(1);
